@@ -1,87 +1,72 @@
-﻿// See https://aka.ms/new-console-template for more information
-
-using System.Globalization;
-using CsvHelper;
-using HtmlAgilityPack;
-using System.IO;
+﻿using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
+using OpenQA.Selenium.Support.UI;
 
-class Program
+namespace JobScraper
 {
-    static void Main()
+    public class Program
     {
-        var web = new HtmlWeb();
-        var document =
-            web.Load("https://dk.indeed.com/jobs?q=software+developer&l=aarhus&from=searchOnHP&vjk=aab1613a0233192d");
-        var jobs = new List<Job>();
-
-        // CRITICAL: Inspect the HTML and update these selectors!
-        // Verify this selector targets the ENTIRE job card.
-        string jobCardSelector = "//div[contains(@class, 'jobsearch-SerpJobCard')]"; //Likely Correct
-
-        var jobHTMLElements = document.DocumentNode.SelectNodes(jobCardSelector);
-
-        if (jobHTMLElements != null)
+        public class Job
         {
-            Console.WriteLine($"Found {jobHTMLElements.Count} job elements."); // Debugging
+            public string? Url { get; set; }
+            public string? Name { get; set; }
+        }
 
-            foreach (var jobHTMLElement in jobHTMLElements)
+        public static void Main()
+        {
+            // Set up Chrome options
+            var options = new ChromeOptions();
+            //options.AddArgument("--headless");
+            options.AddArgument("--disable-gpu");
+            options.AddArgument("--window-size=1920,1080");
+            options.AddArgument("--disable-usb-discovery");
+
+            using (IWebDriver driver = new ChromeDriver(options))
             {
-                try
+                Console.WriteLine("🔍 Opening Indeed...");
+                driver.Navigate().GoToUrl("https://www.it-jobbank.dk/jobsoegning?q=embedded&ref=google-sudv&gclid=Cj0KCQiAwtu9BhC8ARIsAI9JHakpqA0k9mh-m9PMW79N26UuqGe_tzA631CsZdIvSncfQrrTiczHbYcaArckEALw_wcB");
+
+                var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+                var jobElements = wait.Until(drv => drv.FindElements(By.XPath("//*[@id=\"jobad-wrapper-h1540626\"]/div/div/div/h3/a")));
+
+
+
+                // Find job elements
+
+
+
+                
+
+                if (jobElements.Count == 0)
                 {
-                    // **Update these XPath expressions to be RELATIVE to the jobCardSelector**
-                    // **Also incorporate the data-testid from the h2**
+                    Console.WriteLine("❌ No job listings found. Check the XPath selector.");
+                }
 
-                    var titleNode = jobHTMLElement.SelectSingleNode(".//h2[@data-testid='simpler-jobTitle']"); // using data-testid
-                    var companyNode = jobHTMLElement.SelectSingleNode(".//span[contains(@class, 'companyName')]");   // Update this if needed
-                    var locationNode = jobHTMLElement.SelectSingleNode(".//div[contains(@class, 'companyLocation')]"); // Update this if needed
-                    var descriptionNode = jobHTMLElement.SelectSingleNode(".//div[contains(@class, 'job-snippet')]"); // Update this if needed
-                    var imageNode = jobHTMLElement.SelectSingleNode(".//img");  // Update this if needed
+                List<Job> jobs = new List<Job>();
 
-                    var url = titleNode?.SelectSingleNode(".//a")?.GetAttributeValue("href", ""); //URL inside the h2
-                    var imageUrl = imageNode?.GetAttributeValue("src", "");
-                    var title = titleNode?.InnerText?.Trim(); //Get innerText directly from the h2
-                    var company = companyNode?.InnerText?.Trim();
-                    var location = locationNode?.InnerText?.Trim();
-                    var description = descriptionNode?.InnerText?.Trim();
-
-                     if(url != null)
+                foreach (var jobElement in jobElements)
+                {
+                    var job = new Job
                     {
-                        url = HtmlEntity.DeEntitize(url);
-                    }
-
-                    var job = new Job() {Title = title, Company = company, Location = location, Description = description };
+                        Name = jobElement.Text.Trim(),
+                        Url = "https://dk.indeed.com" + jobElement.GetAttribute("href")
+                    };
                     jobs.Add(job);
-
-                    Console.WriteLine($"Title: {title}, Company: {company}, Location: {location}");  // Debugging
-
                 }
-                catch (Exception ex)
+
+                // Print job results
+                foreach (var job in jobs)
                 {
-                    Console.WriteLine($"Error processing job element: {ex.Message}");
+                    Console.WriteLine($"✅ Job Title: {job.Name}");
+                    Console.WriteLine($"🔗 Job Link: {job.Url}");
+                    Console.WriteLine("--------------------------------------------------");
                 }
+
+                Console.WriteLine($"✅ Successfully scraped {jobs.Count} jobs!");
             }
         }
-        else
-        {
-            Console.WriteLine("No job elements found.  Check the jobCardSelector.");
-        }
-
-        // initializing the CSV output file
-        using (var writer = new StreamWriter("jobs.csv"))
-        using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
-        {
-            csv.WriteRecords(jobs);
-        }
-    }
-
-
-    public class Job
-    {
-        public string? Title { get; set; }
-        public string? Company { get; set; }
-        public string? Location { get; set; }
-        public string? Description { get; set; }
     }
 }
