@@ -4,6 +4,9 @@ using OpenQA.Selenium.Support.UI;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.IO;
+using CsvHelper;
+using CsvHelper.Configuration;
 
 namespace JobScraper
 {
@@ -12,6 +15,7 @@ namespace JobScraper
         public string? Title { get; set; }
         public string? Company { get; set; }
         public string? Url { get; set; }
+        public string? Site { get; set; }
     }
 
     public class Program
@@ -21,145 +25,65 @@ namespace JobScraper
             ChromeOptions options = new ChromeOptions();
             options.AddArgument("--headless");
 
-            // Run each scraping task concurrently, each with its own driver instance.
-            var hubTask = Task.Run(() =>
+            // Run scraping task for The Hub
+            List<Job> jobs;
+            using (IWebDriver driver = new ChromeDriver(options))
             {
-                using (IWebDriver driver = new ChromeDriver(options))
-                {
-                    ScrapeHubSelenium(driver, "https://thehub.io/jobs?q=software+developer&l=aarhus", "The Hub");
-                }
-            });
+                jobs = ScrapeHubSelenium(driver, "https://thehub.io/jobs?q=software+developer&l=aarhus", "🚀 The Hub");
+            }
 
-            var jobIndexTask = Task.Run(() =>
-            {
-                using (IWebDriver driver = new ChromeDriver(options))
-                {
-                    ScrapeJobindexSelenium(driver, "https://www.jobindex.dk/jobsoegning/region-midtjylland?q=backend", "JobIndex.dk");
-                }
-            });
+            // Write to CSV
+            WriteJobsToCsv(jobs, "jobs.csv");
 
-            var itJobbankTask = Task.Run(() =>
-            {
-                using (IWebDriver driver = new ChromeDriver(options))
-                {
-                    ScrapeItJobbankSelenium(driver, "https://www.it-jobbank.dk/jobsoegning/testquality-assurance", "IT Jobbank");
-                }
-            });
-
-            await Task.WhenAll(hubTask, jobIndexTask, itJobbankTask);
+            Console.WriteLine("\n✨ Scraping Complete! Results saved to jobs.csv");
         }
 
-        static void ScrapeHubSelenium(IWebDriver driver, string url, string siteName)
+        static List<Job> ScrapeHubSelenium(IWebDriver driver, string url, string siteName)
         {
+            Console.WriteLine($"\n🔍 {siteName} - Scraping Started...");
             driver.Navigate().GoToUrl(url);
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
-            // Wait until at least one job card is loaded.
+            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(60));
             wait.Until(d => d.FindElements(By.XPath("//div[contains(@class, 'card-job-find-list')]")).Count > 0);
 
             List<Job> jobs = new List<Job>();
 
-            // Loop through each job card element and extract data.
-            var jobNodes = driver.FindElements(By.XPath("//div[contains(@class, 'card-job-find-list')]"));
-            foreach (IWebElement jobNode in jobNodes)
-            {
-                Job job = new Job();
-
-                try
-                {
-                    job.Title = jobNode.FindElement(By.XPath(".//span[contains(@class, 'card-job-find-list__position')]")).Text.Trim();
-                }
-                catch (NoSuchElementException ex)
-                {
-                    Console.WriteLine($"Error extracting title on {siteName}: {ex.Message}");
-                    continue; // Skip this job if title is not found.
-                }
-
-                try
-                {
-                    job.Company = jobNode.FindElement(By.XPath(".//div[contains(@class, 'bullet-inline-list')]/span[1]")).Text.Trim();
-                }
-                catch (NoSuchElementException)
-                {
-                    job.Company = "Unknown";
-                }
-
-                try
-                {
-                    job.Url = jobNode.FindElement(By.XPath(".//a[contains(@class, 'card-job-find-list__link')]")).GetAttribute("href");
-                }
-                catch (NoSuchElementException)
-                {
-                    Console.WriteLine($"Error extracting URL on {siteName}.");
-                    continue; // Skip if URL is not found.
-                }
-
-                if (!string.IsNullOrEmpty(job.Title) && !string.IsNullOrEmpty(job.Url))
-                {
-                    jobs.Add(job);
-                }
-            }
-
-            PrintJobs(jobs, siteName);
-        }
-
-        static void ScrapeItJobbankSelenium(IWebDriver driver, string url, string siteName)
-        {
-            driver.Navigate().GoToUrl(url);
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            wait.Until(d => d.FindElements(By.XPath("//div[@class='PaidJob'] | //div[@class='jix_robotjob']")).Count > 0);
-
-            List<Job> jobs = new List<Job>();
-
-            foreach (IWebElement jobNode in driver.FindElements(By.XPath("//div[@class='PaidJob'] | //div[@class='jix_robotjob']")))
+            foreach (IWebElement jobNode in driver.FindElements(By.XPath("//div[contains(@class, 'card-job-find-list')]")))
             {
                 Job job = new Job();
                 try
                 {
-                    job.Title = jobNode.FindElement(By.XPath(".//h4/a")).Text.Trim();
-                    job.Url = jobNode.FindElement(By.XPath(".//h4/a")).GetAttribute("href");
-                    job.Company = jobNode.FindElement(By.XPath(".//div[@class='jix_robotjob--top']/a")).Text.Trim();
-                }
-                catch (NoSuchElementException)
-                {
-                    job.Company = "Unknown";
-                }
-
-                if (!string.IsNullOrEmpty(job.Title) && !string.IsNullOrEmpty(job.Url))
-                {
-                    jobs.Add(job);
-                }
-            }
-
-            PrintJobs(jobs, siteName);
-        }
-
-        static void ScrapeJobindexSelenium(IWebDriver driver, string url, string siteName)
-        {
-            driver.Navigate().GoToUrl(url);
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            wait.Until(d => d.FindElements(By.XPath("//div[contains(@id, 'jobad-wrapper')]")).Count > 0);
-
-            List<Job> jobs = new List<Job>();
-
-            foreach (IWebElement jobNode in driver.FindElements(By.XPath("//div[contains(@id, 'jobad-wrapper')]")))
-            {
-                Job job = new Job();
-                try
-                {
-                    job.Title = jobNode.FindElement(By.XPath(".//h4/a")).Text.Trim();
-                    job.Url = jobNode.FindElement(By.XPath(".//h4/a")).GetAttribute("href");
-
+                    // Check if title element exists before extracting
+                    IWebElement titleElement = null;
                     try
                     {
-                        job.Company = jobNode.FindElement(By.XPath(".//div[@class='jix-toolbar-top__company']/a")).Text.Trim();
+                        titleElement = jobNode.FindElement(By.XPath(".//span[contains(@class, 'card-job-find-list__position')]"));
                     }
-                    catch (NoSuchElementException)
+                    catch (NoSuchElementException) { /* Element doesn't exist, move on */ }
+                    job.Title = titleElement?.Text.Trim();
+
+                    // Check if company element exists before extracting
+                    IWebElement companyElement = null;
+                    try
                     {
-                        job.Company = "Unknown";
+                        companyElement = jobNode.FindElement(By.XPath(".//div[contains(@class, 'bullet-inline-list')]/span[1]"));
                     }
+                    catch (NoSuchElementException) { /* Element doesn't exist, move on */ }
+                    job.Company = companyElement?.Text.Trim();
+
+                    // Check if URL element exists before extracting
+                    IWebElement urlElement = null;
+                    try
+                    {
+                        urlElement = jobNode.FindElement(By.XPath(".//a[contains(@class, 'card-job-find-list__link')]"));
+                    }
+                    catch (NoSuchElementException) { /* Element doesn't exist, move on */ }
+                    job.Url = urlElement?.GetAttribute("href");
+                    job.Site = siteName;
+
                 }
-                catch (NoSuchElementException)
+                catch (Exception e)
                 {
+                    Console.WriteLine($"⚠️ {siteName} - Unexpected error extracting job details: {e.Message}");
                     continue;
                 }
 
@@ -170,17 +94,34 @@ namespace JobScraper
             }
 
             PrintJobs(jobs, siteName);
+            return jobs;
         }
 
         static void PrintJobs(List<Job> jobs, string siteName)
         {
-            Console.WriteLine($"--- {siteName} Jobs ---");
+            Console.WriteLine($"\n📝 {siteName} - Found {jobs.Count} Jobs:");
             foreach (Job job in jobs)
             {
-                Console.WriteLine($"Title: {job.Title}");
-                Console.WriteLine($"Company: {job.Company}");
-                Console.WriteLine($"URL: {job.Url}");
+                Console.WriteLine($"📌 Title: {job.Title}");
+                Console.WriteLine($"🏢 Company: {job.Company}");
+                Console.WriteLine($"🔗 URL: {job.Url}");
                 Console.WriteLine("-------------------");
+            }
+        }
+
+        static void WriteJobsToCsv(List<Job> jobs, string filePath)
+        {
+            try
+            {
+                using (var writer = new StreamWriter(filePath))
+                using (var csv = new CsvWriter(writer, new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)))
+                {
+                    csv.WriteRecords(jobs);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Error writing to CSV: {ex.Message}");
             }
         }
     }
